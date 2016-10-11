@@ -1,0 +1,324 @@
+#!/usr/bin/env bash
+
+# overall usage
+overall_usage()
+{
+cat << EOF
+
+Program: grass
+Version: 1.0 (2 March, 2016)
+
+Usage:   grass <command> [options]
+
+Command: process      raw read processing
+         mtfish       mitochondrial read fishing
+         
+EOF
+}
+
+# process command usage
+process_usage()
+{
+cat << EOF
+
+Usage:   grass process [<params.cfg>]
+
+Options: -h            usage information and help (this message)
+         -c            print a template parameter file with default values to 'params.cfg'
+         
+EOF
+}
+
+# mtfish command usage (not implemented)
+mtfish_usage()
+{
+cat << EOF
+
+Usage:   grass mtfish [<params.cfg>]
+
+Options: -h            usage information and help (this message)
+         
+EOF
+}
+
+# if no command passed, display usage
+if [[ $1 == "" ]] && [[ $2 == "" ]]; then
+	overall_usage
+fi
+
+# if process command passed and '-c' flag, print template configuration file to template.cfg
+if [[ $1 == "process" ]] && [[ $2 == "-c" ]]; then
+	echo "## Important options
+# Options that likely need to be set by the user
+
+# Executable locations:
+pear                    = pear                        # full path to PEAR read merging executable, or just executable name if in \$PATH
+trimmomatic             = trimmomatic-0.32.jar        # full path to Trimmomatic executable, or just executable name if in \$PATH
+clone_filter            = clone_filter                # full path to clone_filter executable, or just executable name if in \$PATH
+
+# Basic options:
+threads                 = 2                           # number of threads
+memory                  = 2G                          # memory allocated for read pairing
+minimum overlap         = 25                          # minimum overlap for read pairing
+p-value                 = 0.01                        # p-value for read pairing statistical test
+adapters                = adapters.fasta              # fasta file of adapter sequences to trim
+file directory          = ./                          # directory containing paired read files for processing
+read encoding		= R1/R2                       # encoding for paired read file names (<read1>/<read2>)
+file extension		= fastq                       # extension for read files (e.g., fastq, fq, etc.)
+verbosity		= 1                           # verbosity of output: 0 = sample progress only, 1 = sample & step progress, 2 = sample, step, & command progress
+
+## Advanced options
+# Program defaults that shouldn't need adjustment in most circumstances
+
+# Advanced PEAR options (see PEAR documentation for more options):
+max-assembly-length     = 0                          # maximum assembled length possible (0 = disabled)
+min-assembly-length     = 50                         # minimum assembled length possible
+min-trim-length         = 1                          # minimum length of reads after quality trimming
+quality-threshold       = 0                          # quality score threshold for quality trimming
+max-uncalled-base       = 1                          # maximum proportion uncalled bases in read (1 = process all reads)
+test-method             = 1                          # type of statistical test: 1 = OES, 2 = M.A.P.
+empirical-freqs         = true                       # use empirical base frequencies (set to 'false' to disable)
+score-method            = 2                          # scoring method: 1 = OES, 2 = assembly score
+phred-base              = 33                         # base PHRED quality score
+cap                     = 40                         # upper bound for resulting quality score
+nbase                   = false                      # non-equal base reconciliation
+
+# Advanced Trimmomatic options (see Trimmomatic documentation for more options):
+# ILLUMINACLIP
+seedMismatches          = 2                          # maximum mismatch count that allows a full match to be performed
+palindromeClipTheshold  = 30                         # accuracy threshold of match between two adapter ligated reads
+simpleClipThreshold     = 10                         # accuracy threshold of match between adapter etc. and read
+minAdapterLength        = 8                          # minimum adapter length to trim
+keepBothReads           = false                      # keep reverse read after adapter clipping (set to 'true' to enable)
+# Following are ordered based on ordering of trimming in command
+# CROP
+tailcrop_length         = 1000                       # number of bases to keep from the beginning of the reads (set to very high value to keep full reads)
+# HEADCROP
+headcrop_length         = 0                          # number of bases to remove from beginning of reads
+# LEADING
+lead_quality            = 3                          # minimum quality required to keep leading bases
+# TRAILING
+trail_quality           = 3                          # minimum quality required to keep trailing bases
+# SLIDINGWINDOW
+windowSize              = 4                          # number of bases to average quality score across
+requiredQuality         = 15                         # average quality score threshold
+# MINLEN
+min_length              = 36                         # minimum post-trimming read length"
+> template.cfg
+
+# and echo that this was done	
+	echo -e "\n###########################################################################\
+	\nA template configuration file has been created. See 'template.cfg'\
+	\n###########################################################################\n"
+fi
+
+# if process command is passed and '-h' flag, echo process command usage
+if [[ $1 == "process" ]] && [[ $2 == "-h" ]]; then
+	process_usage
+fi
+
+# if mtfish command is passed and '-h' flag, echo mtfish command usage
+if [[ $1 == "mtfish" ]] && [[ $2 == "-h" ]]; then
+	mtfish_usage
+fi
+
+# if nothing is passed after process command, echo process usage
+if [[ $1 == "process" ]] && [[ $2 == "" ]]; then
+	process_usage
+fi
+
+# if nothing is passed after mtfish command, echo mtfish usage
+if [[ $1 == "mtfish" ]] && [[ $2 == "" ]]; then
+	mtfish_usage
+fi
+
+# if no '-h', '-c' or blank passed after process command, user must be providing configuration file
+if [[ $1 == "process" ]] && [[ $2 != "-h" ]] && [[ $2 != "-c" ]] && [[ $2 != "" ]]; then
+	
+# read configuration file and parse information
+	pear=$(awk -F "=" '/pear/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	trimmomatic=$(awk -F "=" '/trimmomatic/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	clone_filter=$(awk -F "=" '/clone_filter/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+
+	threads=$(awk -F "=" '/threads/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	memory=$(awk -F "=" '/memory/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	min_overlap=$(awk -F "=" '/minimum overlap/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	pvalue=$(awk -F "=" '/p-value/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	adapters=$(awk -F "=" '/adapters/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	file_dir=$(awk -F "=" '/file directory/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	read1=$(awk -F "=" '/read encoding/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2 | cut -d "/" -f 1)
+	read2=$(awk -F "=" '/read encoding/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2 | cut -d "/" -f 2)
+	ext=$(awk -F "=" '/file extension/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	verb=$(awk -F "=" '/verbosity/ {print $2}' $2 | cut -d "#" -f 1 | tr -s ' ' | tr -s '\t' | cut -d ' ' -f 2 | tr -s ' ' | tr -s '\t')
+	
+	m=$(awk -F "=" '/max-assembly-length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	n=$(awk -F "=" '/min-assembly-length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	t=$(awk -F "=" '/min-trim-length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	q=$(awk -F "=" '/quality-threshold/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	u=$(awk -F "=" '/max-uncalled-base/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	g=$(awk -F "=" '/test-method/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	e=$(awk -F "=" '/empirical-freqs/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	s=$(awk -F "=" '/score-method/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	b=$(awk -F "=" '/phred-base/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	c=$(awk -F "=" '/cap/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	z=$(awk -F "=" '/nbase/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	
+	seedMismatches=$(awk -F "=" '/seedMismatches/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	palClip=$(awk -F "=" '/palindromeClipTheshold/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	simpleClip=$(awk -F "=" '/simpleClipThreshold/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	minAdapterLen=$(awk -F "=" '/minAdapterLength/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	keepBoth=$(awk -F "=" '/keepBothReads/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	windowSize=$(awk -F "=" '/windowSize/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	reqQual=$(awk -F "=" '/requiredQuality/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	leadQual=$(awk -F "=" '/lead_quality/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	trailQual=$(awk -F "=" '/trail_quality/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	tailCropLen=$(awk -F "=" '/tailcrop_length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	headCropLen=$(awk -F "=" '/headcrop_length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+	minLen=$(awk -F "=" '/min_length/ {print $2}' $2 | cut -d "#" -f 1 | cut -d " " -f 2)
+
+# if empirical freuquencies set to false, render appropriate flag
+	if [[ $e == "false" ]] || [[ $e == "FALSE" ]] || [[ $e == "False" ]]; then
+		empfreq="-e"
+	fi
+	if [[ $e == "true" ]] || [[ $e == "TRUE" ]] || [[ $e == "True" ]]; then
+		empfreq=""
+	fi
+
+# if nbase frequencies set to true, render appropriate flag
+	if [[ $z == "false" ]] || [[ $z == "FALSE" ]] || [[ $z == "False" ]]; then
+		nbase=""
+	fi
+	if [[ $z == "true" ]] || [[ $z == "TRUE" ]] || [[ $z == "True" ]]; then
+		nbase=""
+	fi
+	
+# if necessary subdirectories don't exist, creat them
+	if [[ ! -d clone_filter ]]; then
+		mkdir clone_filter
+	fi
+	if [[ ! -d adapter_filter ]]; then
+		mkdir adapter_filter
+	fi
+	if [[ ! -d read_merging ]]; then
+		mkdir read_merging
+	fi
+	if [[ ! -d quality_filter ]]; then
+		mkdir quality_filter
+	fi
+	if [[ ! -d processed ]]; then
+		mkdir processed
+	fi
+
+# for each sample in the input directory
+	for sample in $file_dir/*$read1*.$ext; do
+		echo ""
+
+# set sample name and read file names
+		root=$(echo $sample | rev | cut -d "/" -f 1 | rev | cut -d "_" -f 1,2)
+		r1=$sample
+		get_r2="echo $sample | sed 's/$read1/$read2/g' | sed 's/$read1/$read2/g'"
+		r2=$(eval $get_r2)
+
+# process sample
+# 0 verbosity only prints sample progress
+# 1 verbosity prints sample and step (clone filter, quality trim, etc) progress
+# 2 verbosity prints sample, step, and actual command progress
+		if [[ $verb == "0" ]] || [[ $verb == "1" ]] || [[ $verb == "2" ]]; then
+			echo "### Processing $root. ###"
+			echo ""
+		fi
+
+# clone filter to remove PCR duplicates
+		clone_opt="-1 $r1 -2 $r2 -o clone_filter/"
+		clone_cmd="$clone_filter $clone_opt"
+		if [[ $verb == "1" ]] || [[ $verb == "2" ]]; then
+			echo "# Clone filtering raw reads and renaming output. #"
+		fi
+		if [[ $verb == "2" ]]; then
+			echo $clone_cmd
+			$clone_cmd
+		fi
+
+# rename clone filter output so it is pretty and functional
+		rename1="mv clone_filter/$root*$read1*.fq clone_filter/$root"_clone.P1.fastq""
+		rename2="mv clone_filter/$root*$read2*.fq clone_filter/$root"_clone.P2.fastq""
+		if [[ $verb == "2" ]]; then
+			echo $rename1
+			$rename1
+			echo $rename2
+			$rename2
+		fi
+		echo ""
+
+# set options and files for adapter trimming and run command
+		adapt_opt="ILLUMINACLIP:$adapters:$seedMismatches:$palClip:$simpleClip:$minAdapterLen:$keepBoth"
+		adapt_files="clone_filter/$root"_clone.P1.fastq" clone_filter/$root"_clone.P2.fastq" adapter_filter/$root"_adaptrim.P1.fastq" adapter_filter/$root"_adaptrim.S1.fastq" adapter_filter/$root"_adaptrim.P2.fastq" adapter_filter/$root"_adaptrim.S2.fastq""
+		adapt_log="adapter_filter/$root"_adaptrim.log""
+		adapt_cmd="java -Xms1G -Xmx$memory -jar $trimmomatic PE -threads $threads -trimlog $adapt_log $adapt_files $adapt_opt"
+		if [[ $verb == "1" ]] || [[ $verb == "2" ]]; then
+			echo "# Trimming away adapter sequences. #"
+		fi
+		if [[ $verb == 2 ]]; then
+			echo $adapt_cmd
+			$adapt_cmd
+		fi
+		echo ""
+	
+# set options and files for read merging and run command
+		pear_opt="-j $threads -y $memory -f adapter_filter/$root"_adaptrim.P1.fastq" -r adapter_filter/$root"_adaptrim.P2.fastq" -o read_merging/$root -p $pvalue -v $min_overlap $empfreq $nbase -m $m -n $n -t $t -q $q -u $u -g $g -s $s -b $b -c $c"
+		pear_cmd="pear $pear_opt"
+		if [[ $verb == 1 ]] || [[ $verb == 2 ]]; then
+			echo "# Merging paired reads based on $min_overlap bp overlap. #"
+		fi
+		if [[ $verb == 2 ]]; then
+			echo $pear_cmd
+			$pear_cmd
+		fi
+		echo ""
+
+# concatenate all broken pairs and SE reads up to this point together (including merged reads) for quality trimming
+		cat_se="cat "read_merging/"$root".assembled.fastq" "adapter_filter/"$root"_adaptrim.S1.fastq" "adapter_filter/"$root"_adaptrim.S2.fastq" > "read_merging/"$root".SE.fastq""
+		if [[ $verb == 1 ]] || [[ $verb == 2 ]]; then
+			echo "# Concatenating all broken pairs and quality trimming reads. #"
+		fi
+		if [[ $verb == 2 ]]; then
+			echo $cat_se
+			eval $cat_se
+		fi
+
+# set options and files for quality trimming and run commands
+		trim_opt=""CROP:"$tailCropLen "HEADCROP:"$headCropLen "LEADING:"$leadQual "TRAILING:"$trailQual "SLIDINGWINDOW:"$windowSize:$reqQual "MINLEN:"$minLen"
+		pe_trim_files="read_merging/$root".unassembled.forward.fastq" read_merging/$root".unassembled.reverse.fastq" quality_filter/$root"_qtrim.P1.fastq" quality_filter/$root"_qtrim.S1.fastq" quality_filter/$root"_qtrim.P2.fastq" quality_filter/$root"_qtrim.S2.fastq""
+		pe_log_file="quality_filter/$root".PE.qtrim.log""
+		se_trim_files=""read_merging/"$root".SE.fastq" "quality_filter/"$root"_qtrim.SE.fastq""
+		se_log_file="quality_filter/$root".SE.qtrim.log""
+		pe_trim_cmd="java -Xms1G -Xmx$memory -jar $trimmomatic PE -threads $threads -trimlog $pe_log_file $pe_trim_files $trim_opt"
+		if [[ $verb == 2 ]]; then
+			echo $pe_trim_cmd
+			$pe_trim_cmd
+		fi
+		se_trim_cmd="java -Xms1G -Xmx$memory -jar $trimmomatic SE -threads $threads -trimlog $se_log_file $se_trim_files $trim_opt"
+		if [[ $verb == 2 ]]; then
+			echo $se_trim_cmd
+			$se_trim_cmd
+		fi
+		echo ""
+
+# concatenate all remaining SE sequences and copy PE sequences to a final 'processed' directory
+		if [[ $verb == 1 ]] || [[ $verb == 2 ]]; then
+			echo "# Performing final processing. Final processed reads for $root can be found within the 'processed' directory. #"
+		fi
+		cat_processed_se="cat "quality_filter/"$root"_qtrim.S1.fastq" "quality_filter/"$root"_qtrim.S2.fastq" "quality_filter/"$root"_qtrim.SE.fastq" > "processed/"$root"_processed.SE.fastq""
+		if [[ $verb == 2 ]]; then
+			echo $cat_processed_se
+			eval $cat_processed_se
+		fi
+		cat_processed_pe="cp "quality_filter/"$root"_qtrim.P1.fastq" "processed/"$root"_processed.P1.fastq" && cp "quality_filter/"$root"_qtrim.P2.fastq" "processed/"$root"_processed.P2.fastq""
+		if [[ $verb == 2 ]]; then
+			echo $cat_processed_pe
+			eval $cat_processed_pe
+		fi
+		echo ""
+
+done
+fi
